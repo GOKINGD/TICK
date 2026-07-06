@@ -1,0 +1,17 @@
+.DS_Store
+.build/
+.build-app/
+dist/
+
+# Local runtime state and secrets
+chat-api-key
+llm-settings.json
+tools/config.json
+trace.jsonl
+
+# Local observer captures should never be published.
+observer-screenshots/
+
+# Python and tool caches
+__pycache__/
+*.pyc

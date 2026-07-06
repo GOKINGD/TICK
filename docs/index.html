@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="TICK 是一个开源 macOS 主动式桌面 Agent：把网页、终端和系统行为转化为可点击的下一步行动。">
+    <meta property="og:title" content="TICK - Actionable macOS Agent">
+    <meta property="og:description" content="让桌面 Agent 不再复述信息，而是在真正需要的时候提取命令、校验环境、诊断错误、预警风险，并提供可点击行动入口。">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="assets/tick-hero.jpg">
+    <title>TICK - Actionable macOS Agent</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="TICK home">
+        <span class="brand-mark">T</span>
+        <span>TICK</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="#vision">理念</a>
+        <a href="#features">能力</a>
+        <a href="#architecture">架构</a>
+        <a href="#trace">Trace</a>
+        <a href="#deploy">部署</a>
+      </nav>
+      <a class="nav-cta" href="#open-source">开源发布</a>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Open-source actionable desktop intelligence</p>
+          <h1>TICK</h1>
+          <p class="hero-lede">
+            一个常驻 macOS 桌面的主动式 Agent。它不做网页摘要，而是在复制报错、终端失败、页面停留、危险命令输入等关键时刻，轻轻展开悬浮机器人，把上下文变成可点击的下一步行动。
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#deploy">用 GitHub Pages 发布</a>
+            <a class="button secondary" href="#architecture">查看架构</a>
+          </div>
+          <div class="hero-metrics" aria-label="Project highlights">
+            <span><strong>macOS</strong> native Swift app</span>
+            <span><strong>API</strong> OpenAI-compatible</span>
+            <span><strong>Skills</strong> Claude Code style</span>
+          </div>
+        </div>
+        <div class="hero-visual" aria-label="TICK product preview">
+          <img src="assets/tick-hero.jpg" alt="TICK 主动式桌面 Agent 产品预览">
+        </div>
+      </section>
+
+      <section id="vision" class="section split">
+        <div>
+          <p class="eyebrow">Why TICK exists</p>
+          <h2>Agent 不应该只活在聊天框里。</h2>
+        </div>
+        <div class="section-copy">
+          <p>
+            TICK 的目标是把 Agent 从“用户主动提问”推进到“系统理解时机”。它观察的是阶段性动作：复制错误、构建失败、在文档页面停留、频繁撤销、准备执行高风险命令。每个信号都会经过本地筛选、去重和频率控制，只把高价值上下文交给模型。
+          </p>
+          <p>
+            输出也不是一个庞大的聊天窗口。TICK 用小而精的悬浮面板展示判断、证据、工具执行过程和行动按钮。它像桌面边缘的一张机器人脸，安静地眨眼、微笑，只在真正能帮你推进任务时出现。
+          </p>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">What it does</p>
+          <h2>从“看见问题”到“执行下一步”。</h2>
+        </div>
+        <div class="feature-grid">
+          <article class="feature-card">
+            <span class="icon">01</span>
+            <h3>主动触发</h3>
+            <p>监听剪贴板、前台窗口、浏览器页面、终端可见文本和键盘节奏。3 秒停留后采样，但只在内容足够有价值时触发。</p>
+          </article>
+          <article class="feature-card">
+            <span class="icon">02</span>
+            <h3>行动预判</h3>
+            <p>网页不再被“总结”。TICK 会提取命令、配置项、报错线索和依赖条件，并给出“校验环境”“生成补丁”“准备执行命令”等按钮。</p>
+          </article>
+          <article class="feature-card">
+            <span class="icon">03</span>
+            <h3>精确错误诊断</h3>
+            <p>本地先抽取错误标题、命令、文件路径、行号、exit code 和附近上下文，再让模型输出中文修复建议。</p>
+          </article>
+          <article class="feature-card">
+            <span class="icon">04</span>
+            <h3>高风险操作预警</h3>
+            <p>识别 <code>rm -rf</code>、<code>git reset --hard</code>、无 <code>WHERE</code> 的 SQL 删除、基础设施销毁等操作，先本地弹出软拦截提醒。</p>
+          </article>
+          <article class="feature-card">
+            <span class="icon">05</span>
+            <h3>Computer Use 入口</h3>
+            <p>每次主动输出都带有可点击动作。用户确认后，TICK 可以继续校验本地环境、准备命令、调用 Skills 或进入工具执行 loop。</p>
+          </article>
+          <article class="feature-card">
+            <span class="icon">06</span>
+            <h3>Claude Code 风格 Skills</h3>
+            <p>只把 Skill 的 name 和 description 放进上下文；匹配后再读取完整 <code>SKILL.md</code>，脚本、参考资料和资产按需加载。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section showcase">
+        <div class="section-heading compact">
+          <p class="eyebrow">Designed for the moment</p>
+          <h2>小面板，重上下文。</h2>
+          <p>不是再造一个沉重 IDE，也不是抢占屏幕的聊天应用。TICK 把“触发、判断、执行、展示”压缩到桌面边缘的一个轻量界面中。</p>
+        </div>
+        <div class="showcase-grid">
+          <div class="showcase-item">
+            <h3>错误出现时</h3>
+            <p>复制英文报错也会输出中文诊断，并给出“生成补丁草案”“定位相关文件”等动作。</p>
+          </div>
+          <div class="showcase-item">
+            <h3>危险操作前</h3>
+            <p>先给出本地即时警告，再提供“生成安全替代命令”“列确认清单”等按钮。</p>
+          </div>
+          <div class="showcase-item">
+            <h3>阅读停留时</h3>
+            <p>浏览技术文档或 API 页面时，提取可执行命令和校验项，而不是复述页面内容。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture" class="section architecture">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture</p>
+          <h2>一个桌面 Agent 的最小可信闭环。</h2>
+        </div>
+        <div class="arch-flow" aria-label="TICK architecture flow">
+          <div class="arch-node">
+            <strong>TICKObserver</strong>
+            <span>macOS 行为观察进程</span>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-node">
+            <strong>Signal Filter</strong>
+            <span>本地分类、去重、冷却</span>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-node">
+            <strong>Agent Loop</strong>
+            <span>模型、Skills、MCP、Hooks</span>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-node">
+            <strong>Floating UI</strong>
+            <span>Markdown 输出和工具过程</span>
+          </div>
+        </div>
+        <div class="architecture-columns">
+          <div>
+            <h3>Observer 层</h3>
+            <p>读取剪贴板、浏览器标题与正文、终端和应用的 Accessibility 文本。默认不截屏，避免触发屏幕录制权限弹窗。</p>
+          </div>
+          <div>
+            <h3>Agent 层</h3>
+            <p>通过用户配置的 OpenAI-compatible endpoint 调用流式模型。工具执行采用 loop 模式：模型请求工具，TICK 执行后把结果回传，直到模型给出最终输出。</p>
+          </div>
+          <div>
+            <h3>Tools 层</h3>
+            <p>Skills 从固定目录读取，MCP 只有配置后才暴露给模型，Hooks 由系统生命周期触发，不交给模型选择。</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="trace" class="section trace-section">
+        <div class="trace-copy">
+          <p class="eyebrow">Trace as a product surface</p>
+          <h2>每一次智能，都应该可解释。</h2>
+          <p>
+            TICK 内置 Trace 日志平台，最新事件在最前面，可以按 trace id 过滤单次问询。右侧展示原始 HTTP 请求和 SSE 返回，帮助开发者快速定位模型、工具、token、上下文或网络问题。
+          </p>
+          <ul class="check-list">
+            <li>完整 raw HTTP 与 SSE 流</li>
+            <li>工具调用、思考过程、最终输出分开展示</li>
+            <li>prompt tokens、completion tokens、total tokens 与 word count</li>
+            <li>本地 JSONL 日志，方便开源调试</li>
+          </ul>
+        </div>
+        <div class="trace-visual">
+          <img src="assets/tick-trace.jpg" alt="TICK Trace 日志平台产品截图">
+        </div>
+      </section>
+
+      <section id="open-source" class="section open-source">
+        <div class="section-heading compact">
+          <p class="eyebrow">Open Source</p>
+          <h2>为桌面 Agent 实验者开放。</h2>
+          <p>
+            TICK 会作为完整 Swift Package 开源：主 App、后台观察进程、通用模型客户端、工具系统、Trace 平台和 GitHub Pages 官网都放在同一个仓库里。
+          </p>
+        </div>
+        <div class="repo-panel">
+          <div>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+          </div>
+          <pre><code>git clone https://github.com/&lt;your-name&gt;/TICK.git
+cd TICK
+swift build --product TICK
+swift build --product TICKObserver
+scripts/build_tick_app.sh</code></pre>
+        </div>
+      </section>
+
+      <section id="deploy" class="section deploy">
+        <div class="section-heading">
+          <p class="eyebrow">GitHub Pages</p>
+          <h2>免费部署这个宣传页。</h2>
+        </div>
+        <div class="deploy-steps">
+          <div class="step">
+            <span>1</span>
+            <h3>推送仓库</h3>
+            <p>把 TICK 项目推送到 GitHub。确认本地密钥、trace、build 产物和截图目录已经被 <code>.gitignore</code> 排除。</p>
+          </div>
+          <div class="step">
+            <span>2</span>
+            <h3>启用 Pages</h3>
+            <p>进入仓库 Settings → Pages，Source 选择 Deploy from a branch，Branch 选择 <code>main</code>，Folder 选择 <code>/docs</code>。</p>
+          </div>
+          <div class="step">
+            <span>3</span>
+            <h3>发布官网</h3>
+            <p>GitHub 会生成免费的项目站点。后续更新 <code>docs/</code> 内容并 push，就会自动刷新页面。</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div>
+        <strong>TICK</strong>
+        <span>Proactive macOS Agent for builders.</span>
+      </div>
+      <a href="#top">回到顶部</a>
+    </footer>
+  </body>
+</html>
