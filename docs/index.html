@@ -23,27 +23,27 @@
         <a href="#features">能力</a>
         <a href="#architecture">架构</a>
         <a href="#trace">Trace</a>
-        <a href="#deploy">部署</a>
+        <a href="#download">下载</a>
       </nav>
-      <a class="nav-cta" href="#open-source">开源发布</a>
+      <a class="nav-cta" href="https://github.com/gokingd/TICK">GitHub</a>
     </header>
 
     <main id="top">
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Open-source actionable desktop intelligence</p>
+          <p class="eyebrow">Proactive Agent for macOS</p>
           <h1>TICK</h1>
           <p class="hero-lede">
-            一个常驻 macOS 桌面的主动式 Agent。它不做网页摘要，而是在复制报错、终端失败、页面停留、危险命令输入等关键时刻，轻轻展开悬浮机器人，把上下文变成可点击的下一步行动。
+            一个常驻 macOS 桌面的 Proactive Agent。它不是等待你提问的聊天框，而是在复制报错、终端失败、页面停留、危险命令输入等关键时刻，轻轻展开悬浮机器人，把上下文变成可点击的下一步行动。
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="#deploy">用 GitHub Pages 发布</a>
+            <a class="button primary" href="downloads/TICK-macOS.zip" download>下载 macOS 版本</a>
             <a class="button secondary" href="#architecture">查看架构</a>
           </div>
           <div class="hero-metrics" aria-label="Project highlights">
             <span><strong>macOS</strong> native Swift app</span>
+            <span><strong>Proactive</strong> context triggers</span>
             <span><strong>API</strong> OpenAI-compatible</span>
-            <span><strong>Skills</strong> Claude Code style</span>
           </div>
         </div>
         <div class="hero-visual" aria-label="TICK product preview">
@@ -58,7 +58,7 @@
         </div>
         <div class="section-copy">
           <p>
-            TICK 的目标是把 Agent 从“用户主动提问”推进到“系统理解时机”。它观察的是阶段性动作：复制错误、构建失败、在文档页面停留、频繁撤销、准备执行高风险命令。每个信号都会经过本地筛选、去重和频率控制，只把高价值上下文交给模型。
+            TICK 的目标是把 Agent 从“用户主动提问”推进到“系统理解时机”。Proactive Agent 的关键不是更会总结，而是更会判断时机：复制错误、构建失败、在文档页面停留、频繁撤销、准备执行高风险命令。每个信号都会经过本地筛选、去重和频率控制，只把高价值上下文交给模型。
           </p>
           <p>
             输出也不是一个庞大的聊天窗口。TICK 用小而精的悬浮面板展示判断、证据、工具执行过程和行动按钮。它像桌面边缘的一张机器人脸，安静地眨眼、微笑，只在真正能帮你推进任务时出现。
@@ -190,11 +190,18 @@
 
       <section id="open-source" class="section open-source">
         <div class="section-heading compact">
-          <p class="eyebrow">Open Source</p>
-          <h2>为桌面 Agent 实验者开放。</h2>
+          <p class="eyebrow">Download and Open Source</p>
+          <h2>直接体验，也可以从源码构建。</h2>
           <p>
-            TICK 会作为完整 Swift Package 开源：主 App、后台观察进程、通用模型客户端、工具系统、Trace 平台和 GitHub Pages 官网都放在同一个仓库里。
+            TICK 提供可下载的 macOS 应用包，也以完整 Swift Package 开源：主 App、后台观察进程、通用模型客户端、工具系统和 Trace 平台都放在同一个仓库里。
           </p>
+        </div>
+        <div id="download" class="download-panel">
+          <div>
+            <h3>macOS App</h3>
+            <p>下载 zip 后解压，打开 <code>TICK.app</code>。首次启动需要在系统设置中允许必要的辅助功能权限。</p>
+          </div>
+          <a class="button primary" href="downloads/TICK-macOS.zip" download>下载 TICK-macOS.zip</a>
         </div>
         <div class="repo-panel">
           <div>
@@ -202,35 +209,11 @@
             <span class="terminal-dot yellow"></span>
             <span class="terminal-dot green"></span>
           </div>
-          <pre><code>git clone https://github.com/&lt;your-name&gt;/TICK.git
+          <pre><code>git clone https://github.com/gokingd/TICK.git
 cd TICK
 swift build --product TICK
 swift build --product TICKObserver
 scripts/build_tick_app.sh</code></pre>
-        </div>
-      </section>
-
-      <section id="deploy" class="section deploy">
-        <div class="section-heading">
-          <p class="eyebrow">GitHub Pages</p>
-          <h2>免费部署这个宣传页。</h2>
-        </div>
-        <div class="deploy-steps">
-          <div class="step">
-            <span>1</span>
-            <h3>推送仓库</h3>
-            <p>把 TICK 项目推送到 GitHub。确认本地密钥、trace、build 产物和截图目录已经被 <code>.gitignore</code> 排除。</p>
-          </div>
-          <div class="step">
-            <span>2</span>
-            <h3>启用 Pages</h3>
-            <p>进入仓库 Settings → Pages，Source 选择 Deploy from a branch，Branch 选择 <code>main</code>，Folder 选择 <code>/docs</code>。</p>
-          </div>
-          <div class="step">
-            <span>3</span>
-            <h3>发布官网</h3>
-            <p>GitHub 会生成免费的项目站点。后续更新 <code>docs/</code> 内容并 push，就会自动刷新页面。</p>
-          </div>
         </div>
       </section>
     </main>
