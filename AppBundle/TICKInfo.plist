@@ -8,6 +8,8 @@
     <string>TICK</string>
     <key>CFBundleExecutable</key>
     <string>TICK</string>
+    <key>CFBundleIconFile</key>
+    <string>TICK</string>
     <key>CFBundleIdentifier</key>
     <string>com.jinshaoqian.tick</string>
     <key>CFBundleInfoDictionaryVersion</key>

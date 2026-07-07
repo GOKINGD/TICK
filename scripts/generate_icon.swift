@@ -25,117 +25,189 @@ let specs: [(points: Int, scale: Int)] = [
 for spec in specs {
     let pixelSize = spec.points * spec.scale
     let image = drawIcon(size: pixelSize)
-    let name = "icon_\(spec.points)x\(spec.points)\(spec.scale == 2 ? "@2x" : "").png"
-    let destination = outputDirectory.appendingPathComponent(name)
-    try writePNG(image: image, to: destination)
+    let suffix = spec.scale == 2 ? "@2x" : ""
+    let name = "icon_\(spec.points)x\(spec.points)\(suffix).png"
+    try writePNG(image: image, to: outputDirectory.appendingPathComponent(name))
 }
 
 func drawIcon(size: Int) -> NSImage {
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
 
-    let rect = NSRect(x: 0, y: 0, width: size, height: size)
+    let canvas = NSRect(x: 0, y: 0, width: size, height: size)
     NSColor.clear.setFill()
-    rect.fill()
+    canvas.fill()
 
-    let backgroundRect = rect.insetBy(dx: CGFloat(size) * 0.05, dy: CGFloat(size) * 0.05)
-    let backgroundPath = NSBezierPath(roundedRect: backgroundRect, xRadius: CGFloat(size) * 0.23, yRadius: CGFloat(size) * 0.23)
+    let baseRect = canvas.insetBy(dx: CGFloat(size) * 0.055, dy: CGFloat(size) * 0.055)
+    let corner = CGFloat(size) * 0.22
+    let basePath = NSBezierPath(roundedRect: baseRect, xRadius: corner, yRadius: corner)
 
     NSGraphicsContext.saveGraphicsState()
-    backgroundPath.addClip()
+    basePath.addClip()
 
-    let backgroundGradient = NSGradient(colors: [
-        NSColor(calibratedRed: 0.90, green: 0.97, blue: 0.99, alpha: 1),
-        NSColor(calibratedRed: 0.67, green: 0.90, blue: 0.97, alpha: 1),
-        NSColor(calibratedRed: 0.98, green: 0.84, blue: 0.72, alpha: 1)
-    ])!
-    backgroundGradient.draw(in: backgroundPath, angle: -45)
+    NSGradient(colors: [
+        NSColor(calibratedRed: 0.04, green: 0.08, blue: 0.09, alpha: 1),
+        NSColor(calibratedRed: 0.06, green: 0.18, blue: 0.17, alpha: 1),
+        NSColor(calibratedRed: 0.10, green: 0.40, blue: 0.35, alpha: 1)
+    ])!.draw(in: basePath, angle: -35)
 
-    let glow1 = NSBezierPath(ovalIn: NSRect(
-        x: CGFloat(size) * 0.05,
-        y: CGFloat(size) * 0.57,
-        width: CGFloat(size) * 0.5,
-        height: CGFloat(size) * 0.5
-    ))
-    NSColor.white.withAlphaComponent(0.35).setFill()
-    glow1.fill()
-
-    let glow2 = NSBezierPath(ovalIn: NSRect(
-        x: CGFloat(size) * 0.55,
-        y: CGFloat(size) * 0.08,
-        width: CGFloat(size) * 0.28,
-        height: CGFloat(size) * 0.28
-    ))
-    NSColor(calibratedRed: 0.19, green: 0.64, blue: 0.84, alpha: 0.22).setFill()
-    glow2.fill()
-
+    drawAmbientGlow(size: size, in: baseRect)
+    drawGrid(size: size, in: baseRect)
     NSGraphicsContext.restoreGraphicsState()
 
-    let cardRect = NSRect(
-        x: CGFloat(size) * 0.15,
-        y: CGFloat(size) * 0.13,
-        width: CGFloat(size) * 0.70,
-        height: CGFloat(size) * 0.74
-    )
-    let cardPath = NSBezierPath(roundedRect: cardRect, xRadius: CGFloat(size) * 0.16, yRadius: CGFloat(size) * 0.16)
-
-    NSColor.white.withAlphaComponent(0.72).setFill()
-    cardPath.fill()
-
-    NSColor.white.withAlphaComponent(0.62).setStroke()
-    cardPath.lineWidth = max(2, CGFloat(size) * 0.01)
-    cardPath.stroke()
-
-    let symbolArea = NSRect(
-        x: cardRect.minX,
-        y: cardRect.minY + CGFloat(size) * 0.12,
-        width: cardRect.width,
-        height: cardRect.height * 0.58
-    )
-    drawSymbols(in: symbolArea, size: size)
-
-    let pillRect = NSRect(
-        x: cardRect.midX - CGFloat(size) * 0.18,
-        y: cardRect.minY + CGFloat(size) * 0.08,
-        width: CGFloat(size) * 0.36,
-        height: CGFloat(size) * 0.09
-    )
-    let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: pillRect.height / 2, yRadius: pillRect.height / 2)
-    NSColor(calibratedRed: 0.15, green: 0.47, blue: 0.73, alpha: 0.95).setFill()
-    pillPath.fill()
+    drawOuterStroke(path: basePath, size: size)
+    drawFace(size: size, baseRect: baseRect)
+    drawLetter(size: size, baseRect: baseRect)
 
     image.unlockFocus()
     return image
 }
 
-func drawSymbols(in rect: NSRect, size: Int) {
-    let dropConfig = NSImage.SymbolConfiguration(pointSize: CGFloat(size) * 0.23, weight: .medium)
-    let walkConfig = NSImage.SymbolConfiguration(pointSize: CGFloat(size) * 0.24, weight: .medium)
+func drawAmbientGlow(size: Int, in rect: NSRect) {
+    let tealGlow = NSBezierPath(ovalIn: NSRect(
+        x: rect.minX + CGFloat(size) * 0.42,
+        y: rect.minY + CGFloat(size) * 0.48,
+        width: CGFloat(size) * 0.58,
+        height: CGFloat(size) * 0.50
+    ))
+    NSColor(calibratedRed: 0.42, green: 0.95, blue: 0.78, alpha: 0.24).setFill()
+    tealGlow.fill()
 
-    if let drop = NSImage(systemSymbolName: "drop.fill", accessibilityDescription: nil)?.withSymbolConfiguration(dropConfig) {
-        let dropRect = NSRect(
-            x: rect.midX - CGFloat(size) * 0.19,
-            y: rect.midY + CGFloat(size) * 0.01,
-            width: CGFloat(size) * 0.18,
-            height: CGFloat(size) * 0.22
-        )
-        drawTintedSymbol(drop, in: dropRect, color: NSColor(calibratedRed: 0.08, green: 0.58, blue: 0.83, alpha: 1))
+    let warmGlow = NSBezierPath(ovalIn: NSRect(
+        x: rect.minX + CGFloat(size) * 0.02,
+        y: rect.minY - CGFloat(size) * 0.10,
+        width: CGFloat(size) * 0.52,
+        height: CGFloat(size) * 0.42
+    ))
+    NSColor(calibratedRed: 0.95, green: 0.78, blue: 0.45, alpha: 0.17).setFill()
+    warmGlow.fill()
+}
+
+func drawGrid(size: Int, in rect: NSRect) {
+    guard size >= 64 else { return }
+
+    let gridColor = NSColor.white.withAlphaComponent(0.08)
+    gridColor.setStroke()
+
+    let step = CGFloat(size) * 0.13
+    var x = rect.minX + step
+    while x < rect.maxX {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: x, y: rect.minY))
+        path.line(to: NSPoint(x: x + CGFloat(size) * 0.08, y: rect.maxY))
+        path.lineWidth = max(1, CGFloat(size) * 0.002)
+        path.stroke()
+        x += step
     }
 
-    if let walk = NSImage(systemSymbolName: "figure.walk.motion", accessibilityDescription: nil)?.withSymbolConfiguration(walkConfig) {
-        let walkRect = NSRect(
-            x: rect.midX - CGFloat(size) * 0.01,
-            y: rect.midY - CGFloat(size) * 0.02,
-            width: CGFloat(size) * 0.20,
-            height: CGFloat(size) * 0.24
-        )
-        drawTintedSymbol(walk, in: walkRect, color: NSColor(calibratedRed: 0.13, green: 0.34, blue: 0.58, alpha: 1))
+    var y = rect.minY + step
+    while y < rect.maxY {
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: rect.minX, y: y))
+        path.line(to: NSPoint(x: rect.maxX, y: y + CGFloat(size) * 0.05))
+        path.lineWidth = max(1, CGFloat(size) * 0.002)
+        path.stroke()
+        y += step
     }
 }
 
-func drawTintedSymbol(_ image: NSImage, in rect: NSRect, color: NSColor) {
-    color.set()
-    image.draw(in: rect, from: .zero, operation: .sourceAtop, fraction: 1)
+func drawOuterStroke(path: NSBezierPath, size: Int) {
+    NSColor.white.withAlphaComponent(0.18).setStroke()
+    path.lineWidth = max(1.5, CGFloat(size) * 0.012)
+    path.stroke()
+
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.26)
+    shadow.shadowBlurRadius = CGFloat(size) * 0.035
+    shadow.shadowOffset = NSSize(width: 0, height: -CGFloat(size) * 0.012)
+    shadow.set()
+}
+
+func drawFace(size: Int, baseRect: NSRect) {
+    let faceRect = NSRect(
+        x: baseRect.minX + CGFloat(size) * 0.18,
+        y: baseRect.minY + CGFloat(size) * 0.20,
+        width: CGFloat(size) * 0.64,
+        height: CGFloat(size) * 0.50
+    )
+    let facePath = NSBezierPath(roundedRect: faceRect, xRadius: CGFloat(size) * 0.15, yRadius: CGFloat(size) * 0.15)
+
+    NSColor(calibratedRed: 0.92, green: 0.99, blue: 0.96, alpha: 0.94).setFill()
+    facePath.fill()
+
+    NSColor(calibratedRed: 0.53, green: 0.89, blue: 0.77, alpha: 0.85).setStroke()
+    facePath.lineWidth = max(1.5, CGFloat(size) * 0.012)
+    facePath.stroke()
+
+    drawEye(center: NSPoint(x: faceRect.minX + faceRect.width * 0.35, y: faceRect.midY + faceRect.height * 0.10), size: size)
+    drawEye(center: NSPoint(x: faceRect.minX + faceRect.width * 0.65, y: faceRect.midY + faceRect.height * 0.10), size: size)
+    drawSmile(in: faceRect, size: size)
+    drawAntenna(size: size, faceRect: faceRect)
+}
+
+func drawEye(center: NSPoint, size: Int) {
+    let radius = CGFloat(size) * 0.035
+    let eye = NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+    NSColor(calibratedRed: 0.04, green: 0.12, blue: 0.13, alpha: 1).setFill()
+    eye.fill()
+}
+
+func drawSmile(in faceRect: NSRect, size: Int) {
+    let path = NSBezierPath()
+    path.move(to: NSPoint(x: faceRect.midX - CGFloat(size) * 0.09, y: faceRect.midY - CGFloat(size) * 0.08))
+    path.curve(
+        to: NSPoint(x: faceRect.midX + CGFloat(size) * 0.09, y: faceRect.midY - CGFloat(size) * 0.08),
+        controlPoint1: NSPoint(x: faceRect.midX - CGFloat(size) * 0.04, y: faceRect.midY - CGFloat(size) * 0.14),
+        controlPoint2: NSPoint(x: faceRect.midX + CGFloat(size) * 0.04, y: faceRect.midY - CGFloat(size) * 0.14)
+    )
+    NSColor(calibratedRed: 0.04, green: 0.12, blue: 0.13, alpha: 1).setStroke()
+    path.lineWidth = max(1.5, CGFloat(size) * 0.015)
+    path.lineCapStyle = .round
+    path.stroke()
+}
+
+func drawAntenna(size: Int, faceRect: NSRect) {
+    let stem = NSBezierPath()
+    stem.move(to: NSPoint(x: faceRect.midX, y: faceRect.maxY))
+    stem.line(to: NSPoint(x: faceRect.midX, y: faceRect.maxY + CGFloat(size) * 0.065))
+    NSColor(calibratedRed: 0.53, green: 0.89, blue: 0.77, alpha: 0.9).setStroke()
+    stem.lineWidth = max(1.5, CGFloat(size) * 0.012)
+    stem.lineCapStyle = .round
+    stem.stroke()
+
+    let dotRadius = CGFloat(size) * 0.026
+    let dot = NSBezierPath(ovalIn: NSRect(
+        x: faceRect.midX - dotRadius,
+        y: faceRect.maxY + CGFloat(size) * 0.055,
+        width: dotRadius * 2,
+        height: dotRadius * 2
+    ))
+    NSColor(calibratedRed: 0.60, green: 0.98, blue: 0.82, alpha: 1).setFill()
+    dot.fill()
+}
+
+func drawLetter(size: Int, baseRect: NSRect) {
+    guard size >= 64 else { return }
+
+    let badgeRect = NSRect(
+        x: baseRect.minX + CGFloat(size) * 0.11,
+        y: baseRect.maxY - CGFloat(size) * 0.24,
+        width: CGFloat(size) * 0.24,
+        height: CGFloat(size) * 0.15
+    )
+    let badge = NSBezierPath(roundedRect: badgeRect, xRadius: CGFloat(size) * 0.04, yRadius: CGFloat(size) * 0.04)
+    NSColor(calibratedRed: 0.04, green: 0.11, blue: 0.12, alpha: 0.64).setFill()
+    badge.fill()
+
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.alignment = .center
+    let font = NSFont.systemFont(ofSize: CGFloat(size) * 0.105, weight: .black)
+    let attrs: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: NSColor.white,
+        .paragraphStyle: paragraph
+    ]
+    NSString(string: "T").draw(in: badgeRect.offsetBy(dx: 0, dy: CGFloat(size) * 0.006), withAttributes: attrs)
 }
 
 func writePNG(image: NSImage, to url: URL) throws {

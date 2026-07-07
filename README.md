@@ -27,7 +27,8 @@ TICK/
 ├── scripts/
 │   ├── build_tick_app.sh
 │   ├── generate_icon.swift
-│   └── generate_web_assets.swift
+│   ├── generate_web_assets.swift
+│   └── notarize_tick_app.sh
 ├── tools/
 │   └── skills/
 └── docs/
@@ -64,6 +65,22 @@ scripts/build_tick_app.sh
 mkdir -p docs/downloads
 ditto -c -k --keepParent dist/TICK.app docs/downloads/TICK-macOS.zip
 ```
+
+## macOS Signing
+
+本地构建默认使用 ad-hoc 签名，适合开发调试。通过网页下载的 ad-hoc 包会触发 Gatekeeper 提示：Apple 无法验证这个 App 是否包含恶意软件。
+
+面向公开分发时，需要使用 Apple Developer ID 签名并完成 notarization：
+
+```bash
+export APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export APPLE_ID="you@example.com"
+export APPLE_TEAM_ID="TEAMID"
+export APPLE_APP_SPECIFIC_PASSWORD="app-specific-password"
+scripts/notarize_tick_app.sh
+```
+
+脚本会重新构建、签名、提交 Apple 公证、staple 公证票据，并更新 `docs/downloads/TICK-macOS.zip`。
 
 ## Observer
 

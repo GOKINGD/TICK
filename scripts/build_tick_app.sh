@@ -13,6 +13,8 @@ INFO_PLIST_SOURCE="$ROOT_DIR/AppBundle/TICKInfo.plist"
 EXECUTABLE_SOURCE="$ROOT_DIR/.build/release/$APP_NAME"
 OBSERVER_NAME="TICKObserver"
 OBSERVER_SOURCE="$ROOT_DIR/.build/release/$OBSERVER_NAME"
+ICONSET_DIR="$BUILD_DIR/$APP_NAME.iconset"
+ICON_FILE="$RESOURCES_DIR/$APP_NAME.icns"
 SIGN_IDENTITY="${APP_SIGN_IDENTITY:--}"
 SIGN_OPTIONS=()
 
@@ -40,7 +42,16 @@ cp "$OBSERVER_SOURCE" "$MACOS_DIR/$OBSERVER_NAME"
 chmod +x "$MACOS_DIR/$APP_NAME"
 chmod +x "$MACOS_DIR/$OBSERVER_NAME"
 
+echo "==> Creating app icon"
+"$ROOT_DIR/scripts/generate_icon.swift" "$ICONSET_DIR"
+iconutil -c icns "$ICONSET_DIR" -o "$ICON_FILE"
+
 echo "==> Signing app bundle"
+if [[ "$SIGN_IDENTITY" == "-" ]]; then
+  echo "    Using ad-hoc signature. macOS Gatekeeper will still warn for downloaded builds."
+else
+  echo "    Using signing identity: $SIGN_IDENTITY"
+fi
 codesign --force --deep "${SIGN_OPTIONS[@]}" --sign "$SIGN_IDENTITY" "$APP_DIR"
 
 echo "==> Built app:"
