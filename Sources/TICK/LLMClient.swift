@@ -11,17 +11,17 @@ enum LLMClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            return "API key required"
+            return "请先填写 API key"
         case .missingModel:
-            return "Model required"
+            return "请先选择模型"
         case .invalidURL(let value):
-            return "Invalid URL: \(value)"
+            return "模型接口地址无效：\(value)"
         case .invalidResponse:
-            return "Invalid response"
+            return "模型接口返回格式不正确"
         case .requestFailed(let code, let message):
-            return "Request failed (\(code)): \(message)"
+            return "请求失败（\(code)）：\(message)"
         case .emptyResponse:
-            return "Empty model response"
+            return "模型返回了空内容（HTTP 200，但没有可展示文本或工具调用）"
         }
     }
 }
@@ -102,6 +102,22 @@ struct LLMClient {
         apiKey: String,
         toolConfiguration: AgentToolConfiguration
     ) async throws -> LLMResponse {
+        try await send(
+            messages: messages,
+            settings: settings,
+            apiKey: apiKey,
+            toolConfiguration: toolConfiguration,
+            allowEmptyRetry: true
+        )
+    }
+
+    private static func send(
+        messages: [[String: Any]],
+        settings: LLMSettings,
+        apiKey: String,
+        toolConfiguration: AgentToolConfiguration,
+        allowEmptyRetry: Bool
+    ) async throws -> LLMResponse {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedKey.isEmpty {
             throw LLMClientError.missingAPIKey
@@ -165,7 +181,50 @@ struct LLMClient {
         }
 
         let trimmedResult = accumulator.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let trimmedReasoning = accumulator.reasoningText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         if trimmedResult.isEmpty && accumulator.toolUses.isEmpty {
+            let usage = accumulator.finalUsage(responseWordCount: 0)
+            traceLog(
+                "http.chat.empty",
+                """
+                data_events=\(accumulator.dataEventCount)
+                raw_sse_chars=\(rawSSE.count)
+                reasoning_chars=\(trimmedReasoning.count)
+                retry=\(allowEmptyRetry)
+                """,
+                rawHTTP: rawSSE.isEmpty ? nil : rawSSE,
+                tokenUsage: usage
+            )
+
+            if allowEmptyRetry {
+                traceLog("http.chat.retry", "reason=empty_model_response")
+                return try await send(
+                    messages: emptyResponseRetryMessages(from: messages),
+                    settings: settings,
+                    apiKey: apiKey,
+                    toolConfiguration: toolConfiguration,
+                    allowEmptyRetry: false
+                )
+            }
+
+            if !trimmedReasoning.isEmpty {
+                let fallback = "模型这次只返回了推理内容，没有返回最终答案。TICK 已把原始响应写入 Trace Log；建议重试一次，或切换到会稳定返回 content 的模型。"
+                let responseWordCount = wordCount(in: fallback)
+                let usage = accumulator.finalUsage(responseWordCount: responseWordCount)
+                traceLog(
+                    "http.chat.done",
+                    """
+                    characters=\(fallback.count)
+                    reasoning_characters=\(trimmedReasoning.count)
+                    reasoning_only_fallback=true
+                    \(tokenUsageDetail(usage))
+                    """,
+                    rawHTTP: rawSSE,
+                    tokenUsage: usage
+                )
+                return LLMResponse(text: fallback, toolUses: [], usage: usage, rawSSE: rawSSE)
+            }
+
             throw LLMClientError.emptyResponse
         }
 
@@ -177,6 +236,7 @@ struct LLMClient {
             "http.chat.done",
             """
             characters=\(trimmedResult.count)
+            reasoning_characters=\(trimmedReasoning.count)
             tools=\(accumulator.toolUses.count)
             \(tokenDetail)
             \(toolDetail)
@@ -210,14 +270,23 @@ struct LLMClient {
     }
 
     static func messages(from transcript: [AgentMessage], toolConfiguration: AgentToolConfiguration) -> [[String: Any]] {
+        let memoryContext = MemoryStore.shared.promptContext(about: transcript)
+        let systemContent = [
+            LLMProviderConfig.systemPrompt,
+            toolConfiguration.systemPromptContext,
+            memoryContext
+        ]
+        .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .joined(separator: "\n\n")
+
         var messages: [[String: Any]] = [
             [
                 "role": "system",
-                "content": "\(LLMProviderConfig.systemPrompt)\n\n\(toolConfiguration.systemPromptContext)"
+                "content": systemContent
             ]
         ]
 
-        messages += transcript.suffix(6).map { message in
+        messages += transcript.suffix(8).filter { !isTransientLocalError($0) }.suffix(6).map { message in
             if message.role == .user && !message.attachments.isEmpty {
                 var content: [[String: Any]] = message.attachments.map { attachment in
                     [
@@ -246,6 +315,26 @@ struct LLMClient {
         }
 
         return messages
+    }
+
+    private static func emptyResponseRetryMessages(from messages: [[String: Any]]) -> [[String: Any]] {
+        messages + [
+            [
+                "role": "user",
+                "content": "上一轮模型没有返回可展示内容。请直接输出最终中文回答，不要只返回 reasoning_content 或空内容；如果没有足够信息，请输出 TICK_SILENT。"
+            ]
+        ]
+    }
+
+    private static func isTransientLocalError(_ message: AgentMessage) -> Bool {
+        guard message.role == .agent else {
+            return false
+        }
+
+        let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text == "Empty model response" ||
+            text.hasPrefix("模型返回了空内容") ||
+            text.hasPrefix("模型这次只返回了推理内容")
     }
 
     private static func textContent(from value: Any?) -> String? {
@@ -451,6 +540,8 @@ struct LLMClient {
 
 private struct StreamAccumulator {
     var text = ""
+    var reasoningText = ""
+    var dataEventCount = 0
     var requestWordCount: Int
     var promptTokens: Int?
     var completionTokens: Int?
@@ -485,7 +576,9 @@ private struct StreamAccumulator {
             return
         }
 
+        dataEventCount += 1
         mergeUsage(json["usage"] as? [String: Any])
+        appendReasoning(json)
         parseOpenAIChunk(json)
         parseAnthropicChunk(json)
     }
@@ -507,6 +600,7 @@ private struct StreamAccumulator {
 
         for choice in choices {
             if let delta = choice["delta"] as? [String: Any] {
+                appendReasoning(delta)
                 if let content = textContent(from: delta["content"]) {
                     text += content
                 }
@@ -515,6 +609,7 @@ private struct StreamAccumulator {
             }
 
             if let message = choice["message"] as? [String: Any] {
+                appendReasoning(message)
                 if let content = textContent(from: message["content"]) {
                     text += content
                 }
@@ -554,6 +649,7 @@ private struct StreamAccumulator {
     private mutating func parseAnthropicChunk(_ json: [String: Any]) {
         if let message = json["message"] as? [String: Any] {
             mergeUsage(message["usage"] as? [String: Any])
+            appendReasoning(message)
             parseAnthropicContent(message["content"] as? [[String: Any]])
         }
 
@@ -572,6 +668,8 @@ private struct StreamAccumulator {
 
             if let blockType = block["type"] as? String, blockType == "text" {
                 text += block["text"] as? String ?? ""
+            } else if let blockType = block["type"] as? String, blockType == "thinking" {
+                reasoningText += block["thinking"] as? String ?? block["text"] as? String ?? ""
             } else if let blockType = block["type"] as? String, blockType == "tool_use" {
                 var buffer = anthropicToolBuffers[index] ?? ToolCallBuffer(source: "anthropic.tool_use")
                 if let id = block["id"] as? String, !id.isEmpty {
@@ -596,6 +694,8 @@ private struct StreamAccumulator {
 
             if let deltaType = delta["type"] as? String, deltaType == "text_delta" {
                 text += delta["text"] as? String ?? ""
+            } else if let deltaType = delta["type"] as? String, deltaType == "thinking_delta" {
+                reasoningText += delta["thinking"] as? String ?? delta["text"] as? String ?? ""
             } else if let deltaType = delta["type"] as? String, deltaType == "input_json_delta" {
                 var buffer = anthropicToolBuffers[index] ?? ToolCallBuffer(source: "anthropic.tool_use")
                 buffer.input += delta["partial_json"] as? String ?? ""
@@ -622,6 +722,8 @@ private struct StreamAccumulator {
 
             if blockType == "text" && includeText {
                 text += block["text"] as? String ?? ""
+            } else if blockType == "thinking" {
+                reasoningText += block["thinking"] as? String ?? block["text"] as? String ?? ""
             } else if blockType == "tool_use" {
                 var buffer = anthropicToolBuffers[index] ?? ToolCallBuffer(source: "anthropic.tool_use")
                 if let id = block["id"] as? String, !id.isEmpty {
@@ -656,6 +758,28 @@ private struct StreamAccumulator {
         }
     }
 
+    private mutating func appendReasoning(_ value: Any?) {
+        if let dictionary = value as? [String: Any] {
+            if let text = textContent(from: dictionary["reasoning_content"]) {
+                reasoningText += text
+            }
+            if let text = textContent(from: dictionary["thinking"]) {
+                reasoningText += text
+            }
+            if let text = textContent(from: dictionary["reasoning"]) {
+                reasoningText += text
+            }
+            if let text = textContent(from: dictionary["thoughts"]) {
+                reasoningText += text
+            }
+            return
+        }
+
+        if let text = textContent(from: value) {
+            reasoningText += text
+        }
+    }
+
     private func textContent(from value: Any?) -> String? {
         if let text = value as? String {
             return text
@@ -669,9 +793,16 @@ private struct StreamAccumulator {
                 if let text = part["content"] as? String {
                     return text
                 }
+                if let text = part["thinking"] as? String {
+                    return text
+                }
                 return nil
             }
             .joined()
+        }
+
+        if let strings = value as? [String] {
+            return strings.joined()
         }
 
         return nil

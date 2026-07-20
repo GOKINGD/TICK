@@ -102,23 +102,9 @@ final class TICKObserver {
             return
         }
 
-        let looksLikeCode = text.contains("{") && text.contains("}") ||
-            text.contains("func ") ||
-            text.contains("class ") ||
-            text.contains("import ") ||
-            text.contains("def ")
-
-        guard looksLikeCode else {
-            return
+        if looksLikeDiagnosticText(text) {
+            emitDiagnosticClipboard(text)
         }
-
-        emit(
-            type: "clipboard.signal",
-            confidence: 0.72,
-            title: "准备处理复制的代码",
-            detail: compactText(text, maxLength: 1400),
-            context: currentAppContext()
-        )
     }
 
     private func pollSelectionIntent() {
@@ -189,7 +175,9 @@ final class TICKObserver {
         }
 
         if isBrowser(bundleID: bundle),
-           let page = browserPageSnapshot(bundleID: bundle, appName: context["appName"] ?? "", includeText: false) {
+           let metadataPage = browserPageSnapshot(bundleID: bundle, appName: context["appName"] ?? "", includeText: false),
+           isTechnicalBrowserPage(title: metadataPage.title, url: metadataPage.url) {
+            let page = browserPageSnapshot(bundleID: bundle, appName: context["appName"] ?? "", includeText: true) ?? metadataPage
             let pageKey = stableKey([page.url, page.title, String(page.text.prefix(1200))])
             guard pageKey != lastBrowserPageKey else {
                 idlePromptSentForWindow = true
@@ -204,26 +192,15 @@ final class TICKObserver {
             enrichedContext["captureMode"] = page.mode
             emit(
                 type: "browser.page_idle",
-                confidence: 0.62,
-                title: "页面已就绪，等待复制或选中",
+                confidence: 0.88,
+                title: "技术页面已停留",
                 detail: actionableContextForPage(page),
                 context: enrichedContext
             )
             return
-        } else if isBrowser(bundleID: bundle) {
-            emit(
-                type: "browser.page_unavailable",
-                confidence: 0.55,
-                title: "浏览器页面文本不可用",
-                detail: "TICKObserver 未能读取当前浏览器页面文本。",
-                context: context
-            )
-            idlePromptSentForWindow = true
-            return
         }
 
         if isTerminal(bundleID: bundle) {
-            idlePromptSentForWindow = true
             let snapshot = appContextSnapshot(maxTextLength: 2400)
             let key = snapshotKey(bundleID: bundle, snapshot: snapshot)
             guard key != lastTerminalContextKey else {
@@ -236,6 +213,7 @@ final class TICKObserver {
             if let risk = riskOperation(in: visibleText) {
                 enrichedContext["riskKind"] = risk.kind
                 enrichedContext["signature"] = stableKey([risk.kind, risk.line])
+                idlePromptSentForWindow = true
                 emit(
                     type: "risk.operation_detected",
                     confidence: 0.94,
@@ -250,6 +228,7 @@ final class TICKObserver {
                 enrichedContext["diagnosticCategory"] = diagnostic.category
                 enrichedContext["diagnosticHeadline"] = diagnostic.headline
                 enrichedContext["signature"] = diagnostic.signature
+                idlePromptSentForWindow = true
                 emit(
                     type: "terminal.error_diagnostic",
                     confidence: 0.95,
@@ -260,9 +239,15 @@ final class TICKObserver {
                 return
             }
 
+            guard terminalContextLooksActionable(visibleText) else {
+                idlePromptSentForWindow = true
+                return
+            }
+
+            idlePromptSentForWindow = true
             emitContextSnapshot(
                 type: "terminal.context_idle",
-                confidence: 0.84,
+                confidence: 0.88,
                 title: "准备推进终端下一步",
                 snapshot: snapshot,
                 context: enrichedContext
@@ -270,13 +255,14 @@ final class TICKObserver {
             return
         }
 
-        idlePromptSentForWindow = true
         let snapshot = appContextSnapshot(maxTextLength: 1800)
         guard let confidence = genericContextConfidence(snapshot: snapshot, bundleID: bundle, isBrowserFallback: false) else {
+            idlePromptSentForWindow = true
             return
         }
         let key = snapshotKey(bundleID: bundle, snapshot: snapshot)
         guard key != lastGenericContextKey else {
+            idlePromptSentForWindow = true
             return
         }
         lastGenericContextKey = key
@@ -286,6 +272,7 @@ final class TICKObserver {
         if let risk = riskOperation(in: visibleText) {
             enrichedContext["riskKind"] = risk.kind
             enrichedContext["signature"] = stableKey([risk.kind, risk.line])
+            idlePromptSentForWindow = true
             emit(
                 type: "risk.operation_detected",
                 confidence: 0.92,
@@ -300,6 +287,7 @@ final class TICKObserver {
             enrichedContext["diagnosticCategory"] = diagnostic.category
             enrichedContext["diagnosticHeadline"] = diagnostic.headline
             enrichedContext["signature"] = diagnostic.signature
+            idlePromptSentForWindow = true
             emit(
                 type: "app.error_diagnostic",
                 confidence: 0.91,
@@ -310,6 +298,7 @@ final class TICKObserver {
             return
         }
 
+        idlePromptSentForWindow = true
         emitContextSnapshot(
             type: "app.context_idle",
             confidence: confidence,
@@ -403,19 +392,104 @@ final class TICKObserver {
             bundleID.contains("feishu") ||
             bundleID.contains("lark")
 
-        if hasContentSignal {
+        if hasContentSignal && appLooksUseful {
             return 0.84
         }
 
-        if appLooksUseful && text.count >= 220 {
+        if appLooksUseful && text.count >= 220 && hasContentSignal {
             return 0.8
         }
 
-        if text.count >= 700 {
-            return 0.79
+        return nil
+    }
+
+    private func isTechnicalBrowserPage(title: String, url: String) -> Bool {
+        let lower = "\(title)\n\(url)".lowercased()
+        let signals = [
+            "stackoverflow.com",
+            "stack overflow",
+            "github.com",
+            "/issues",
+            "docs.",
+            "documentation",
+            "developer.apple.com/documentation",
+            "readthedocs",
+            "api reference",
+            "mdn",
+            "bug",
+            "manual",
+            "tutorial"
+        ]
+        return signals.contains { lower.contains($0) }
+    }
+
+    private func terminalContextLooksActionable(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if commandLines(in: text.components(separatedBy: .newlines)).count > 0 {
+            return true
         }
 
-        return nil
+        let signals = [
+            "error", "exception", "failed", "traceback", "warning", "panic",
+            "build", "test", "install", "compile", "exit code", "exit status",
+            "no such file or directory", "permission denied", "command not found",
+            "failed with", "xcodebuild", "swiftc", "npm ", "pnpm ", "yarn ",
+            "python ", "git ", "docker ", "kubectl "
+        ]
+        return signals.contains { lower.contains($0) }
+    }
+
+    private func looksLikeDiagnosticText(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let signals = [
+            "error", "exception", "failed", "traceback", "panic", "fatal",
+            "stack trace", "assertion", "warn", "warning", "exception", "崩溃",
+            "异常", "失败", "报错", "错误"
+        ]
+        return signals.contains { lower.contains($0) }
+    }
+
+    private func emitDiagnosticClipboard(_ text: String) {
+        var context = currentAppContext()
+        if let diagnostic = diagnosticSummary(from: text, source: "clipboard") {
+            context["diagnosticCategory"] = diagnostic.category
+            context["diagnosticHeadline"] = diagnostic.headline
+            context["signature"] = diagnostic.signature
+            emit(
+                type: "clipboard.error_diagnostic",
+                confidence: 0.93,
+                title: "诊断复制的报错",
+                detail: diagnostic.detail,
+                context: context
+            )
+            return
+        }
+
+        let lines = compactText(text, maxLength: 1800)
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let headline = String((lines.first ?? text).prefix(220))
+        context["diagnosticCategory"] = "General Error"
+        context["diagnosticHeadline"] = headline
+        context["signature"] = stableKey(["clipboard", headline, String(text.prefix(260))])
+        emit(
+            type: "clipboard.error_diagnostic",
+            confidence: 0.9,
+            title: "诊断复制的报错",
+            detail: """
+            来源: clipboard
+
+            错误类型: General Error
+
+            关键错误行:
+            \(headline)
+
+            上下文片段:
+            \(compactText(text, maxLength: 1600))
+            """,
+            context: context
+        )
     }
 
     private struct AppSnapshot {

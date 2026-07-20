@@ -111,7 +111,7 @@ final class TICKAppDelegate: NSObject, NSApplicationDelegate {
         window.title = "TICK Tools Settings"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 780, height: 620))
+        window.setContentSize(NSSize(width: 780, height: 660))
         window.center()
 
         let controller = NSWindowController(window: window)
@@ -281,6 +281,12 @@ final class FloatingAgentController: ObservableObject {
     @Published var latestMessage = "TICK is quietly watching for useful moments."
     @Published var transcript: [AgentMessage] = []
     @Published var isRequesting = false
+    @Published var peekMessage = ""
+    @Published var peekActions: [AgentAction] = []
+
+    var hasPeekSuggestion: Bool {
+        !peekMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private enum PromptSource {
         case user
@@ -379,28 +385,33 @@ final class FloatingAgentController: ObservableObject {
             visibleUserText: signal.title,
             attachments: [],
             includeTranscriptHistory: false,
-            source: .activity
+            source: .activity,
+            activitySignalType: signal.type
         )
     }
 
     private func showImmediateRiskWarning(_ signal: ActivitySignal) {
         let riskKind = signal.context["riskKind"] ?? "高风险操作"
         let message = """
-        **先别急着执行：\(riskKind)**
+        ### 我看到了什么
+        先别急着执行：\(riskKind)
 
-        TICK 发现当前操作可能会删除、覆盖或重置重要内容。先确认目标路径、影响范围和备份，再继续。
+        ### 我判断你可能卡在哪里
+        这一步可能会删除、覆盖或重置重要内容。
+
+        ### 我能帮你做什么
+        我可以先帮你生成更安全的替代命令，或者列一份确认清单。
         """
         let actions = [
             AgentAction(title: "生成安全替代命令", prompt: "请基于刚才检测到的高风险操作，生成更安全的替代命令。要求包含 dry-run、备份或影响范围预览。原始操作：\(signal.detail)"),
             AgentAction(title: "列确认清单", prompt: "请把刚才检测到的高风险操作转换成执行前确认清单，并指出哪些信息必须由我确认。原始操作：\(signal.detail)")
         ]
-        latestMessage = message
+        presentPeek(message: message, actions: actions)
         if transcript.last?.text != message {
             transcript.append(AgentMessage(role: .agent, text: message, actions: actions))
             trimTranscriptIfNeeded()
         }
         traceLog("activity.risk.immediate", "risk=\(riskKind)\n\(signal.detail)")
-        setExpanded(true, autoCollapse: false)
     }
 
     func sendReply(_ text: String, attachments: [MessageAttachment]) {
@@ -412,14 +423,16 @@ final class FloatingAgentController: ObservableObject {
         visibleUserText: String,
         attachments: [MessageAttachment] = [],
         includeTranscriptHistory: Bool = true,
-        source: PromptSource = .user
+        source: PromptSource = .user,
+        activitySignalType: String? = nil
     ) {
         sendPrompt(
             prompt,
             visibleUserText: visibleUserText,
             attachments: attachments,
             includeTranscriptHistory: includeTranscriptHistory,
-            source: source
+            source: source,
+            activitySignalType: activitySignalType
         )
     }
 
@@ -428,7 +441,8 @@ final class FloatingAgentController: ObservableObject {
         visibleUserText: String,
         attachments: [MessageAttachment],
         includeTranscriptHistory: Bool = true,
-        source: PromptSource = .user
+        source: PromptSource = .user,
+        activitySignalType: String? = nil
     ) {
         let trimmedText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedVisibleText = visibleUserText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -445,6 +459,10 @@ final class FloatingAgentController: ObservableObject {
         }
 
         if source == .user {
+            clearPeek()
+        }
+
+        if source == .user {
             transcript.append(AgentMessage(role: .user, text: trimmedVisibleText.isEmpty ? "Activity signal" : trimmedVisibleText, attachments: attachments))
             trimTranscriptIfNeeded()
             latestMessage = "Thinking..."
@@ -454,6 +472,7 @@ final class FloatingAgentController: ObservableObject {
         }
         isRequesting = true
 
+        let wasExpanded = isExpanded
         let requestMessage = AgentMessage(
             role: .user,
             text: trimmedText.isEmpty ? "Image" : trimmedText,
@@ -469,7 +488,7 @@ final class FloatingAgentController: ObservableObject {
         let traceID = TraceContext.makeID()
         traceLog(
             "chat.request",
-            "model=\(requestSettings.model)\nuser=\(trimmedVisibleText)\nprompt_chars=\(trimmedText.count)\nattachments=\(attachments.count)\ninclude_history=\(includeTranscriptHistory)",
+            "model=\(requestSettings.model)\nuser=\(trimmedVisibleText)\nprompt_chars=\(trimmedText.count)\nattachments=\(attachments.count)\ninclude_history=\(includeTranscriptHistory)\nmemory_entries=\(MemoryStore.shared.learnedCount)",
             traceID: traceID
         )
 
@@ -486,6 +505,7 @@ final class FloatingAgentController: ObservableObject {
                     await MainActor.run {
                         if source == .activity, self.shouldSuppressActivityOutput(result.finalText) {
                             self.latestMessage = "TICK 正在安静观察合适的时机。"
+                            self.clearPeek()
                             self.isRequesting = false
                             traceLog(
                                 "chat.suppressed",
@@ -498,25 +518,43 @@ final class FloatingAgentController: ObservableObject {
                         if source == .activity {
                             self.transcript.append(AgentMessage(role: .user, text: trimmedVisibleText.isEmpty ? "Activity signal" : trimmedVisibleText, attachments: attachments))
                         }
-                            let actionOutput = AgentActionParser.parse(result.finalText)
-                            self.transcript.append(AgentMessage(role: .agent, text: actionOutput.text, thoughts: result.thoughts, toolExecutions: result.toolExecutions, actions: actionOutput.actions))
-                            self.trimTranscriptIfNeeded()
-                            self.latestMessage = actionOutput.text
-                            self.isRequesting = false
-                            let toolSummary = result.toolExecutions.map { "\($0.kind) \($0.name): \($0.output)" }.joined(separator: "\n")
-                            traceLog(
-                                "chat.response",
-                                """
-                                model=\(requestSettings.model)
-                                response=\(actionOutput.text)
-                                actions=\(actionOutput.actions.count)
-                                thoughts=\(result.thoughts.count)
-                                tools=\(result.toolExecutions.count)
-                                \(toolSummary)
+
+                        let actionOutput = AgentActionParser.parse(result.finalText)
+                        self.transcript.append(AgentMessage(role: .agent, text: actionOutput.text, thoughts: result.thoughts, toolExecutions: result.toolExecutions, actions: actionOutput.actions))
+                        self.trimTranscriptIfNeeded()
+                        let previewText = self.previewText(from: actionOutput.text, fallback: trimmedVisibleText)
+                        self.latestMessage = previewText
+                        self.isRequesting = false
+
+                        MemoryStore.shared.ingestConversation(
+                            userText: trimmedText,
+                            assistantText: actionOutput.text,
+                            source: source == .activity ? "activity" : "user",
+                            signalType: activitySignalType
+                        )
+
+                        let toolSummary = result.toolExecutions.map { "\($0.kind) \($0.name): \($0.output)" }.joined(separator: "\n")
+                        traceLog(
+                            "chat.response",
+                            """
+                            model=\(requestSettings.model)
+                            response=\(actionOutput.text)
+                            actions=\(actionOutput.actions.count)
+                            thoughts=\(result.thoughts.count)
+                            tools=\(result.toolExecutions.count)
+                            \(toolSummary)
                             """,
                             tokenUsage: result.usage
                         )
-                        self.setExpanded(true, autoCollapse: false)
+                        if source == .activity {
+                            self.presentPeek(message: previewText, actions: actionOutput.actions)
+                            if wasExpanded {
+                                self.setExpanded(true, autoCollapse: false)
+                            }
+                        } else {
+                            self.clearPeek()
+                            self.setExpanded(true, autoCollapse: false)
+                        }
                     }
                 } catch {
                     await MainActor.run {
@@ -525,6 +563,7 @@ final class FloatingAgentController: ObservableObject {
                         self.trimTranscriptIfNeeded()
                         self.latestMessage = message
                         self.isRequesting = false
+                        self.clearPeek()
                         traceLog("chat.error", message)
                         self.setExpanded(true, autoCollapse: false)
                     }
@@ -547,9 +586,15 @@ final class FloatingAgentController: ObservableObject {
 
         let lower = trimmed.lowercased()
         if lower.contains("```tick-actions") ||
+            trimmed.contains("### 我看到了什么") ||
+            trimmed.contains("### 我判断你可能卡在哪里") ||
+            trimmed.contains("### 我能帮你做什么") ||
+            trimmed.contains("### 可执行动作") ||
             trimmed.contains("我猜你") ||
             trimmed.contains("我检测到") ||
-            trimmed.contains("我已经") {
+            trimmed.contains("我看到了") ||
+            trimmed.contains("我判断") ||
+            trimmed.contains("我能帮你") {
             return false
         }
 
@@ -577,6 +622,10 @@ final class FloatingAgentController: ObservableObject {
             return true
         }
 
+        if !containsChinese(trimmed) {
+            return true
+        }
+
         let meaningfulSignals = [
             "错误", "异常", "失败", "建议", "下一步", "原因", "风险", "注意", "完成",
             "error", "failed", "exception", "warning", "todo", "fix", "api", "test", "build"
@@ -598,6 +647,30 @@ final class FloatingAgentController: ObservableObject {
         if expanded && autoCollapse {
             scheduleAutoCollapse()
         }
+    }
+
+    private func presentPeek(message: String, actions: [AgentAction]) {
+        let compact = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        peekMessage = compact.isEmpty ? "TICK 已整理出一个可执行建议。" : String(compact.prefix(260))
+        peekActions = Array(actions.prefix(2))
+        latestMessage = peekMessage
+    }
+
+    private func clearPeek() {
+        peekMessage = ""
+        peekActions = []
+    }
+
+    private func previewText(from output: String, fallback: String) -> String {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            return String(trimmed.prefix(260))
+        }
+        return fallback.isEmpty ? "TICK 已给出一个动作建议。" : String(fallback.prefix(260))
+    }
+
+    private func containsChinese(_ text: String) -> Bool {
+        text.range(of: #"[一-龥]"#, options: .regularExpression) != nil
     }
 
     private func scheduleAutoCollapse() {
@@ -696,7 +769,7 @@ enum AgentActionParser {
                 )
             }
             .filter { !$0.title.isEmpty && !$0.prompt.isEmpty }
-            .prefix(3)
+            .prefix(4)
             .map { $0 }
     }
 }
@@ -727,6 +800,16 @@ struct FloatingAgentView: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 12) {
+            if !controller.isExpanded && controller.hasPeekSuggestion {
+                ActivityPeekCard(
+                    message: controller.peekMessage,
+                    actions: controller.peekActions,
+                    expand: controller.toggleExpanded,
+                    runAction: runAction
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity).combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+            }
+
             if controller.isExpanded {
                 AgentBubble(
                     latestMessage: controller.latestMessage,
@@ -745,6 +828,7 @@ struct FloatingAgentView: View {
             RobotFace(
                 isExpanded: controller.isExpanded,
                 isAnalyzing: controller.isRequesting && !controller.isDragging,
+                hasSuggestion: controller.hasPeekSuggestion && !controller.isExpanded,
                 blink: blink,
                 smile: smile,
                 breathe: breathe && !controller.isDragging
@@ -841,12 +925,20 @@ struct FloatingAgentView: View {
 private struct RobotFace: View {
     let isExpanded: Bool
     let isAnalyzing: Bool
+    let hasSuggestion: Bool
     let blink: Bool
     let smile: Bool
     let breathe: Bool
 
     var body: some View {
         ZStack {
+            Circle()
+                .stroke(
+                    hasSuggestion && !isAnalyzing ? Color(red: 0.46, green: 0.94, blue: 0.72).opacity(breathe ? 0.76 : 0.35) : .clear,
+                    lineWidth: hasSuggestion ? 3 : 0
+                )
+                .frame(width: 84, height: 84)
+
             Circle()
                 .fill(
                     LinearGradient(
@@ -869,25 +961,29 @@ private struct RobotFace: View {
                 .frame(width: 50, height: 38)
 
             Circle()
-                .fill(isAnalyzing ? Color(red: 1.00, green: 0.82, blue: 0.34) : Color(red: 0.54, green: 0.93, blue: 0.94))
-                .frame(width: isAnalyzing && breathe ? 10 : 8, height: isAnalyzing && breathe ? 10 : 8)
+                .fill(statusDotColor)
+                .frame(width: activeDotSize, height: activeDotSize)
                 .offset(x: 22, y: -24)
-                .opacity(isExpanded || isAnalyzing ? 1 : 0.64)
+                .opacity(isExpanded || isAnalyzing || hasSuggestion ? 1 : 0.64)
         }
-        .scaleEffect(breathe ? (isAnalyzing ? 1.06 : 1.035) : 0.985)
+        .scaleEffect(breathe ? (isAnalyzing ? 1.06 : (hasSuggestion ? 1.045 : 1.035)) : 0.985)
         .shadow(
-            color: isAnalyzing ? Color(red: 0.17, green: 0.82, blue: 0.74).opacity(breathe ? 0.42 : 0.18) : .clear,
-            radius: isAnalyzing ? (breathe ? 16 : 8) : 0,
+            color: glowColor,
+            radius: glowRadius,
             x: 0,
             y: 0
         )
         .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isExpanded)
         .animation(.easeInOut(duration: 0.9), value: isAnalyzing)
+        .animation(.easeInOut(duration: 0.9), value: hasSuggestion)
     }
 
     private var topColor: Color {
         if isAnalyzing {
             return breathe ? Color(red: 0.99, green: 0.64, blue: 0.24) : Color(red: 0.12, green: 0.78, blue: 0.74)
+        }
+        if hasSuggestion {
+            return breathe ? Color(red: 0.36, green: 0.88, blue: 0.72) : Color(red: 0.17, green: 0.63, blue: 0.76)
         }
         return Color(red: 0.20, green: 0.55, blue: 0.78)
     }
@@ -896,7 +992,50 @@ private struct RobotFace: View {
         if isAnalyzing {
             return breathe ? Color(red: 0.10, green: 0.52, blue: 0.58) : Color(red: 0.07, green: 0.30, blue: 0.44)
         }
+        if hasSuggestion {
+            return Color(red: 0.08, green: 0.36, blue: 0.46)
+        }
         return Color(red: 0.09, green: 0.28, blue: 0.42)
+    }
+
+    private var statusDotColor: Color {
+        if isAnalyzing {
+            return Color(red: 1.00, green: 0.82, blue: 0.34)
+        }
+        if hasSuggestion {
+            return Color(red: 0.54, green: 1.00, blue: 0.65)
+        }
+        return Color(red: 0.54, green: 0.93, blue: 0.94)
+    }
+
+    private var activeDotSize: CGFloat {
+        if isAnalyzing && breathe {
+            return 10
+        }
+        if hasSuggestion && breathe {
+            return 9
+        }
+        return 8
+    }
+
+    private var glowColor: Color {
+        if isAnalyzing {
+            return Color(red: 0.17, green: 0.82, blue: 0.74).opacity(breathe ? 0.42 : 0.18)
+        }
+        if hasSuggestion {
+            return Color(red: 0.28, green: 0.88, blue: 0.62).opacity(breathe ? 0.34 : 0.14)
+        }
+        return .clear
+    }
+
+    private var glowRadius: CGFloat {
+        if isAnalyzing {
+            return breathe ? 16 : 8
+        }
+        if hasSuggestion {
+            return breathe ? 14 : 6
+        }
+        return 0
     }
 }
 
@@ -949,6 +1088,79 @@ private struct Smile: Shape {
         path.move(to: start)
         path.addQuadCurve(to: end, control: control)
         return path
+    }
+}
+
+private struct ActivityPeekCard: View {
+    let message: String
+    let actions: [AgentAction]
+    let expand: () -> Void
+    let runAction: (AgentAction) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color(red: 0.10, green: 0.42, blue: 0.56))
+
+                Text("TICK")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color(red: 0.11, green: 0.18, blue: 0.22))
+
+                Spacer()
+
+                Button(action: expand) {
+                    Image(systemName: "arrow.left.and.line.vertical.and.arrow.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(red: 0.18, green: 0.28, blue: 0.33))
+                        .frame(width: 22, height: 22)
+                        .background(Color.white.opacity(0.55))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("展开详情")
+            }
+
+            MarkdownText(message, size: 13, weight: .semibold)
+                .foregroundStyle(Color(red: 0.12, green: 0.19, blue: 0.24))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !actions.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(actions.prefix(2)) { action in
+                        Button {
+                            runAction(action)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                Text(action.title)
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(red: 0.09, green: 0.38, blue: 0.42))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(11)
+        .frame(width: 252, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(0.58), lineWidth: 1)
+        )
     }
 }
 
@@ -1289,9 +1501,18 @@ private struct MarkdownText: View {
     }
 
     var body: some View {
-        Text(LocalizedStringKey(text))
+        markdownText
             .font(.system(size: size, weight: weight, design: design))
             .textSelection(.enabled)
+    }
+
+    @ViewBuilder
+    private var markdownText: some View {
+        if let attributed = try? AttributedString(markdown: text, options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)) {
+            Text(attributed)
+        } else {
+            Text(text)
+        }
     }
 }
 

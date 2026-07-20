@@ -8,6 +8,7 @@ chat-api-key
 llm-settings.json
 tools/config.json
 trace.jsonl
+memory.json
 
 # Local observer captures should never be published.
 observer-screenshots/

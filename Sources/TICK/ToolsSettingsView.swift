@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ToolsSettingsView: View {
     @ObservedObject var store: AgentToolConfigurationStore
+    @ObservedObject private var memoryStore = MemoryStore.shared
     let close: () -> Void
 
     @State private var selectedTab = "Skills"
@@ -24,6 +25,7 @@ struct ToolsSettingsView: View {
                 Text("Skills").tag("Skills")
                 Text("MCP").tag("MCP")
                 Text("Hooks").tag("Hooks")
+                Text("Memory").tag("Memory")
             }
             .pickerStyle(.segmented)
 
@@ -86,6 +88,8 @@ struct ToolsSettingsView: View {
             mcpPane
         case "Hooks":
             hooksPane
+        case "Memory":
+            memoryPane
         default:
             skillsPane
         }
@@ -177,6 +181,66 @@ struct ToolsSettingsView: View {
         }
     }
 
+    private var memoryPane: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Long-term Memory")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                    Text("Only sanitized, stable preferences are stored locally. Raw clipboard, secrets, and full transcripts stay out.")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Reload") {
+                    memoryStore.reload()
+                }
+
+                Button("Clear Memory") {
+                    memoryStore.clear()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            GroupBox("Prompt Preview") {
+                ScrollView {
+                    Text(memoryStore.promptPreview.isEmpty ? "No memory yet." : memoryStore.promptPreview)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(height: 120)
+            }
+
+            HStack {
+                Text("Learned items")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                Spacer()
+                Text("\(memoryStore.learnedCount) items")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if memoryStore.entries.isEmpty {
+                        Text("No learned memory yet.")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(memoryStore.entries) { entry in
+                            MemoryRow(entry: entry)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func toolList(title: String, rows: [(String, String, String, String)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
@@ -205,6 +269,56 @@ struct ToolsSettingsView: View {
         if panel.runModal() == .OK,
            let url = panel.url {
             store.importSkill(from: url)
+        }
+    }
+}
+
+private struct MemoryRow: View {
+    let entry: MemoryEntry
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: iconName)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(red: 0.09, green: 0.35, blue: 0.42))
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(entry.category.displayName)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                    Spacer()
+                    Text("evidence \(entry.evidenceCount)")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(entry.text)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color(red: 0.20, green: 0.27, blue: 0.31))
+
+                Text("confidence \(String(format: "%.2f", entry.confidence)) · \(entry.sourceKind)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var iconName: String {
+        switch entry.category {
+        case .preference:
+            return "hand.thumbsup"
+        case .workflow:
+            return "arrow.triangle.branch"
+        case .constraint:
+            return "shield.lefthalf.filled"
+        case .environment:
+            return "laptopcomputer"
         }
     }
 }

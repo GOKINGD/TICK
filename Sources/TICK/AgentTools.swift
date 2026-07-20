@@ -74,6 +74,7 @@ struct AgentToolConfiguration: Codable, Equatable {
         Installed skills:
         \(skillLines.isEmpty ? "- none configured" : skillLines)
         \(mcpContext)
+        Long-term memory is supplied separately as a compact local profile. Use it only as a soft preference signal. Current user input overrides memory.
         After a tool result is returned, continue reasoning from the result and produce a final answer when no more tools are needed.
         """
     }
